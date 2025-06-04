@@ -1,2 +1,2 @@
 # devops_example
-Example scripts for containerising, building, testing &amp; deploying Java app (for Gitlab CI/CD).   
+App's source code hidden. For educational purposes.

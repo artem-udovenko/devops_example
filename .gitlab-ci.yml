@@ -1,0 +1,101 @@
+include:
+  - project: 'udovenkoar/ci-templates'
+    ref: main
+    file: 'templates/docker-build-job.yml'
+  - project: 'udovenkoar/ci-templates'
+    ref: main
+    file: 'templates/docker-test-job.yml'
+  - project: 'udovenkoar/ci-templates'
+    ref: main
+    file: 'templates/docker-deploy-job.yml'
+
+image: docker:latest
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  DEPLOY: "false"
+
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  
+  MYSQL_DATABASE: hobbie_db
+  MYSQL_PORT: "3306"
+  MYSQL_USER: test
+  MYSQL_PASSWORD: test
+  MYSQL_ROOT_PASSWORD: root
+  NGINX_PROXY_PORT: "80"
+
+  CI_REGISTRY: $CI_REGISTRY
+  BACKEND_IMAGE: ${CI_REGISTRY}/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}/backend
+  FRONTEND_IMAGE: ${CI_REGISTRY}/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}/frontend
+
+  MYSQL_IMAGE: mysql:8.0
+  NGINX_IMAGE: nginx:alpine
+
+services:
+  - name: docker:dind
+    alias: docker
+    command: ["--tls=false"]
+
+before_script:
+  - docker --version
+  - docker-compose --version
+  - echo -e "MYSQL_DATABASE=${MYSQL_DATABASE}\nMYSQL_PORT=${MYSQL_PORT}\nMYSQL_USER=${MYSQL_USER}\nMYSQL_PASSWORD=${MYSQL_PASSWORD}\nMYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}\nNGINX_PROXY_PORT=${NGINX_PROXY_PORT}" > .env
+  - cat .env
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+
+build_backend:
+  extends: .docker-build-template
+  stage: build
+  tags: [my-tag]
+  variables:
+    IMAGE_NAME: $BACKEND_IMAGE
+    DOCKER_CONTEXT: ./spring-backend
+    DOCKERFILE_PATH: ./spring-backend/Dockerfile
+    SOURCE_CODE_PATH: spring-backend
+  rules:
+    - changes:
+        - spring-backend/**/*
+        - spring-backend/Dockerfile
+
+build_frontend:
+  extends: .docker-build-template
+  stage: build
+  tags: [my-tag]
+  variables:
+    IMAGE_NAME: $FRONTEND_IMAGE
+    DOCKER_CONTEXT: ./react-frontend
+    DOCKERFILE_PATH: ./react-frontend/Dockerfile
+    SOURCE_CODE_PATH: react-frontend
+  rules:
+    - changes:
+        - react-frontend/**/*
+        - react-frontend/Dockerfile
+
+test:
+  extends: .docker-test-template
+  stage: test
+  tags: [my-tag]
+  variables:
+    DOCKER_COMPOSE_FILE: docker-compose.ci.yml
+    TARGET_SERVICE: nginx-proxy
+    TARGET_PORT: 80
+  rules:
+    - changes:
+        - spring-backend/**/*
+        - react-frontend/**/*
+        - docker-compose.ci.yml
+
+deploy:
+  extends: .docker-deploy-template
+  stage: deploy
+  tags: [deploy]
+  variables:
+    DOCKER_HOST: ""
+    DOCKER_COMPOSE_FILE: docker-compose.ci.yml
+    TARGET_SERVICE: nginx-proxy
+    TARGET_PORT: 80
